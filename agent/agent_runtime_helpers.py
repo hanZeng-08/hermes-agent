@@ -1737,8 +1737,6 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
             except Exception:
                 pass
         return _finish_agent_tool(result)
-    elif agent._memory_manager and agent._memory_manager.has_tool(function_name):
-        return _finish_agent_tool(agent._memory_manager.handle_tool_call(function_name, function_args))
     elif function_name == "clarify":
         from tools.clarify_tool import clarify_tool as _clarify_tool
         return _finish_agent_tool(
@@ -1750,6 +1748,8 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
         )
     elif function_name == "delegate_task":
         return _finish_agent_tool(agent._dispatch_delegate_task(function_args))
+    elif agent._memory_manager and agent._memory_manager.has_tool(function_name):
+        return _finish_agent_tool(agent._memory_manager.handle_tool_call(function_name, function_args))
     else:
         return _ra().handle_function_call(
             function_name, function_args, effective_task_id,
