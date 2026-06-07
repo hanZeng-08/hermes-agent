@@ -28,12 +28,19 @@ _HASS_URL: str = ""
 _HASS_TOKEN: str = ""
 
 
-def _get_config():
-    """Return (hass_url, hass_token) from env vars at call time."""
-    return (
-        (_HASS_URL or os.getenv("HASS_URL", "http://homeassistant.local:8123")).rstrip("/"),
-        _HASS_TOKEN or os.getenv("HASS_TOKEN", ""),
-    )
+def _get_config(instance: Optional[str] = None):
+    """Return (hass_url, hass_token) from env vars at call time.
+
+    If *instance* is provided, look for ``HASS_<INSTANCE>_URL`` and
+    ``HASS_<INSTANCE>_TOKEN`` first, falling back to the defaults.
+    """
+    if instance:
+        url = os.getenv(f"HASS_{instance.upper()}_URL") or os.getenv("HASS_URL", "http://homeassistant.local:8123")
+        token = os.getenv(f"HASS_{instance.upper()}_TOKEN") or os.getenv("HASS_TOKEN", "")
+    else:
+        url = _HASS_URL or os.getenv("HASS_URL", "http://homeassistant.local:8123")
+        token = _HASS_TOKEN or os.getenv("HASS_TOKEN", "")
+    return url.rstrip("/"), token
 
 # Regex for valid HA entity_id format (e.g. "light.living_room", "sensor.temperature_1")
 _ENTITY_ID_RE = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z0-9_]+$")
@@ -105,11 +112,12 @@ def _filter_and_summarize(
 async def _async_list_entities(
     domain: Optional[str] = None,
     area: Optional[str] = None,
+    instance: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Fetch entity states from HA and optionally filter by domain/area."""
     import aiohttp
 
-    hass_url, hass_token = _get_config()
+    hass_url, hass_token = _get_config(instance)
     url = f"{hass_url}/api/states"
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=_get_headers(hass_token), timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -119,11 +127,11 @@ async def _async_list_entities(
     return _filter_and_summarize(states, domain, area)
 
 
-async def _async_get_state(entity_id: str) -> Dict[str, Any]:
+async def _async_get_state(entity_id: str, instance: Optional[str] = None) -> Dict[str, Any]:
     """Fetch detailed state of a single entity."""
     import aiohttp
 
-    hass_url, hass_token = _get_config()
+    hass_url, hass_token = _get_config(instance)
     url = f"{hass_url}/api/states/{entity_id}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=_get_headers(hass_token), timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -179,11 +187,12 @@ async def _async_call_service(
     service: str,
     entity_id: Optional[str] = None,
     data: Optional[Dict[str, Any]] = None,
+    instance: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Call a Home Assistant service."""
     import aiohttp
 
-    hass_url, hass_token = _get_config()
+    hass_url, hass_token = _get_config(instance)
     url = f"{hass_url}/api/services/{domain}/{service}"
     payload = _build_service_payload(entity_id, data)
 
@@ -225,8 +234,9 @@ def _handle_list_entities(args: dict, **kw) -> str:
     """Handler for ha_list_entities tool."""
     domain = args.get("domain")
     area = args.get("area")
+    instance = args.get("instance")
     try:
-        result = _run_async(_async_list_entities(domain=domain, area=area))
+        result = _run_async(_async_list_entities(domain=domain, area=area, instance=instance))
         return json.dumps({"result": result})
     except Exception as e:
         logger.error("ha_list_entities error: %s", e)
@@ -236,12 +246,13 @@ def _handle_list_entities(args: dict, **kw) -> str:
 def _handle_get_state(args: dict, **kw) -> str:
     """Handler for ha_get_state tool."""
     entity_id = args.get("entity_id", "")
+    instance = args.get("instance")
     if not entity_id:
         return tool_error("Missing required parameter: entity_id")
     if not _ENTITY_ID_RE.match(entity_id):
         return tool_error(f"Invalid entity_id format: {entity_id}")
     try:
-        result = _run_async(_async_get_state(entity_id))
+        result = _run_async(_async_get_state(entity_id, instance=instance))
         return json.dumps({"result": result})
     except Exception as e:
         logger.error("ha_get_state error: %s", e)
@@ -252,6 +263,7 @@ def _handle_call_service(args: dict, **kw) -> str:
     """Handler for ha_call_service tool."""
     domain = args.get("domain", "")
     service = args.get("service", "")
+    instance = args.get("instance")
     if not domain or not service:
         return tool_error("Missing required parameters: domain and service")
 
@@ -281,7 +293,7 @@ def _handle_call_service(args: dict, **kw) -> str:
             return tool_error(f"Invalid JSON string in 'data' parameter: {e}")
 
     try:
-        result = _run_async(_async_call_service(domain, service, entity_id, data))
+        result = _run_async(_async_call_service(domain, service, entity_id, data, instance=instance))
         return json.dumps({"result": result})
     except Exception as e:
         logger.error("ha_call_service error: %s", e)
@@ -292,11 +304,11 @@ def _handle_call_service(args: dict, **kw) -> str:
 # List services
 # ---------------------------------------------------------------------------
 
-async def _async_list_services(domain: Optional[str] = None) -> Dict[str, Any]:
+async def _async_list_services(domain: Optional[str] = None, instance: Optional[str] = None) -> Dict[str, Any]:
     """Fetch available services from HA and optionally filter by domain."""
     import aiohttp
 
-    hass_url, hass_token = _get_config()
+    hass_url, hass_token = _get_config(instance)
     url = f"{hass_url}/api/services"
     headers = {"Authorization": f"Bearer {hass_token}", "Content-Type": "application/json"}
     async with aiohttp.ClientSession() as session:
@@ -329,8 +341,9 @@ async def _async_list_services(domain: Optional[str] = None) -> Dict[str, Any]:
 def _handle_list_services(args: dict, **kw) -> str:
     """Handler for ha_list_services tool."""
     domain = args.get("domain")
+    instance = args.get("instance")
     try:
-        result = _run_async(_async_list_services(domain=domain))
+        result = _run_async(_async_list_services(domain=domain, instance=instance))
         return json.dumps({"result": result})
     except Exception as e:
         logger.error("ha_list_services error: %s", e)
@@ -355,7 +368,8 @@ HA_LIST_ENTITIES_SCHEMA = {
     "description": (
         "List Home Assistant entities. Optionally filter by domain "
         "(light, switch, climate, sensor, binary_sensor, cover, fan, etc.) "
-        "or by area name (living room, kitchen, bedroom, etc.)."
+        "or by area name (living room, kitchen, bedroom, etc.). "
+        "Use the 'instance' parameter to target a specific HA server when multiple are configured."
     ),
     "parameters": {
         "type": "object",
@@ -375,6 +389,13 @@ HA_LIST_ENTITIES_SCHEMA = {
                     "Matches against entity friendly names. Omit to list all."
                 ),
             },
+            "instance": {
+                "type": "string",
+                "description": (
+                    "Optional instance name to target a specific Home Assistant server "
+                    "(e.g. 'home', 'office'). Uses HASS_<INSTANCE>_URL and HASS_<INSTANCE>_TOKEN env vars."
+                ),
+            },
         },
         "required": [],
     },
@@ -384,7 +405,8 @@ HA_GET_STATE_SCHEMA = {
     "name": "ha_get_state",
     "description": (
         "Get the detailed state of a single Home Assistant entity, including all "
-        "attributes (brightness, color, temperature setpoint, sensor readings, etc.)."
+        "attributes (brightness, color, temperature setpoint, sensor readings, etc.). "
+        "Use the 'instance' parameter to target a specific HA server when multiple are configured."
     ),
     "parameters": {
         "type": "object",
@@ -394,6 +416,13 @@ HA_GET_STATE_SCHEMA = {
                 "description": (
                     "The entity ID to query (e.g. 'light.living_room', "
                     "'climate.thermostat', 'sensor.temperature')."
+                ),
+            },
+            "instance": {
+                "type": "string",
+                "description": (
+                    "Optional instance name to target a specific Home Assistant server "
+                    "(e.g. 'home', 'office'). Uses HASS_<INSTANCE>_URL and HASS_<INSTANCE>_TOKEN env vars."
                 ),
             },
         },
@@ -407,7 +436,8 @@ HA_LIST_SERVICES_SCHEMA = {
         "List available Home Assistant services (actions) for device control. "
         "Shows what actions can be performed on each device type and what "
         "parameters they accept. Use this to discover how to control devices "
-        "found via ha_list_entities."
+        "found via ha_list_entities. "
+        "Use the 'instance' parameter to target a specific HA server when multiple are configured."
     ),
     "parameters": {
         "type": "object",
@@ -419,6 +449,13 @@ HA_LIST_SERVICES_SCHEMA = {
                     "Omit to list services for all domains."
                 ),
             },
+            "instance": {
+                "type": "string",
+                "description": (
+                    "Optional instance name to target a specific Home Assistant server "
+                    "(e.g. 'home', 'office'). Uses HASS_<INSTANCE>_URL and HASS_<INSTANCE>_TOKEN env vars."
+                ),
+            },
         },
         "required": [],
     },
@@ -428,7 +465,8 @@ HA_CALL_SERVICE_SCHEMA = {
     "name": "ha_call_service",
     "description": (
         "Call a Home Assistant service to control a device. Use ha_list_services "
-        "to discover available services and their parameters for each domain."
+        "to discover available services and their parameters for each domain. "
+        "Use the 'instance' parameter to target a specific HA server when multiple are configured."
     ),
     "parameters": {
         "type": "object",
@@ -462,6 +500,13 @@ HA_CALL_SERVICE_SCHEMA = {
                     '{"brightness": 255, "color_name": "blue"} for lights, '
                     '{"temperature": 22, "hvac_mode": "heat"} for climate, '
                     '{"volume_level": 0.5} for media players.'
+                ),
+            },
+            "instance": {
+                "type": "string",
+                "description": (
+                    "Optional instance name to target a specific Home Assistant server "
+                    "(e.g. 'home', 'office'). Uses HASS_<INSTANCE>_URL and HASS_<INSTANCE>_TOKEN env vars."
                 ),
             },
         },
