@@ -908,45 +908,68 @@ def _session_browse_picker(sessions: list) -> Optional[str]:
                     pass
 
                 stdscr.refresh()
-                key = stdscr.getch()
+                key = stdscr.get_wch()
 
-                if key in {curses.KEY_UP,}:
-                    if filtered:
-                        cursor = (cursor - 1) % len(filtered)
-                elif key in {curses.KEY_DOWN,}:
-                    if filtered:
-                        cursor = (cursor + 1) % len(filtered)
-                elif key in {curses.KEY_ENTER, 10, 13}:
-                    if filtered:
-                        result_holder[0] = filtered[cursor]["id"]
-                    return
-                elif key == 27:  # Esc
-                    if search_text:
-                        # First Esc clears the search
-                        search_text = ""
-                        filtered = list(sessions)
-                        cursor = 0
-                        scroll_offset = 0
-                    else:
-                        # Second Esc exits
-                        return
-                elif key in {curses.KEY_BACKSPACE, 127, 8}:
-                    if search_text:
-                        search_text = search_text[:-1]
+                if isinstance(key, str):
+                    if key == "\x1b":  # Esc
                         if search_text:
-                            filtered = [s for s in sessions if _match(s, search_text)]
-                        else:
+                            # First Esc clears the search
+                            search_text = ""
                             filtered = list(sessions)
+                            cursor = 0
+                            scroll_offset = 0
+                        else:
+                            # Second Esc exits
+                            return
+                    elif key in ("\n", "\r"):  # Enter
+                        if filtered:
+                            result_holder[0] = filtered[cursor]["id"]
+                        return
+                    elif key in ("\x7f", "\x08"):  # Backspace
+                        if search_text:
+                            search_text = search_text[:-1]
+                            if search_text:
+                                filtered = [s for s in sessions if _match(s, search_text)]
+                            else:
+                                filtered = list(sessions)
+                            cursor = 0
+                            scroll_offset = 0
+                    elif key.isprintable():
+                        # Printable character → add to search filter
+                        search_text += key
+                        filtered = [s for s in sessions if _match(s, search_text)]
                         cursor = 0
                         scroll_offset = 0
-                elif key == ord("q") and not search_text:
-                    return
-                elif 32 <= key <= 126:
-                    # Printable character → add to search filter
-                    search_text += chr(key)
-                    filtered = [s for s in sessions if _match(s, search_text)]
-                    cursor = 0
-                    scroll_offset = 0
+                else:
+                    if key in {curses.KEY_UP,}:
+                        if filtered:
+                            cursor = (cursor - 1) % len(filtered)
+                    elif key in {curses.KEY_DOWN,}:
+                        if filtered:
+                            cursor = (cursor + 1) % len(filtered)
+                    elif key in {curses.KEY_ENTER, 10, 13}:
+                        if filtered:
+                            result_holder[0] = filtered[cursor]["id"]
+                        return
+                    elif key == 27:  # Esc
+                        if search_text:
+                            search_text = ""
+                            filtered = list(sessions)
+                            cursor = 0
+                            scroll_offset = 0
+                        else:
+                            return
+                    elif key in {curses.KEY_BACKSPACE, 127, 8}:
+                        if search_text:
+                            search_text = search_text[:-1]
+                            if search_text:
+                                filtered = [s for s in sessions if _match(s, search_text)]
+                            else:
+                                filtered = list(sessions)
+                            cursor = 0
+                            scroll_offset = 0
+                    elif key == ord("q") and not search_text:
+                        return
 
         curses.wrapper(_curses_browse)
         return result_holder[0]
