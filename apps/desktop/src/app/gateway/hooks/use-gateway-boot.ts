@@ -168,8 +168,8 @@ export function useGatewayBoot({
         return
       }
 
-      // 1s, 2s, 4s … capped at 15s.
-      const delay = Math.min(15_000, 1_000 * 2 ** Math.min(reconnectAttempt, 4))
+      // 1s, 2s, 4s, 8s … capped at 30s for remote/headless gateway resilience.
+      const delay = Math.min(30_000, 1_000 * 2 ** Math.min(reconnectAttempt, 5))
       reconnectAttempt += 1
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null
