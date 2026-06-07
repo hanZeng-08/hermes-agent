@@ -7991,14 +7991,36 @@ def _kill_stale_dashboard_processes(
             except (PermissionError, OSError) as e:
                 failed.append((pid, str(e)))
 
+    # Detect systemd association before cgroup entries disappear.
+    _systemd_user = False
+    _systemd_system = False
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/cgroup", "r", encoding="utf-8") as _cg_f:
+                _cg_text = _cg_f.read()
+            if "hermes-dashboard.service" in _cg_text:
+                if "user.slice" in _cg_text:
+                    _systemd_user = True
+                else:
+                    _systemd_system = True
+        except Exception:
+            pass
+
     for pid in killed:
         print(f"    ✓ stopped PID {pid}")
     for pid, err_msg in failed:
         print(f"    ✗ failed to stop PID {pid}: {err_msg}")
 
     if killed:
-        print("  Restart the dashboard when you're ready:")
-        print("    hermes dashboard --port <port>")
+        if _systemd_user:
+            print("  Dashboard stopped (managed by systemd user service).")
+            print("  Restart with: systemctl --user restart hermes-dashboard.service")
+        elif _systemd_system:
+            print("  Dashboard stopped (managed by systemd system service).")
+            print("  Restart with: sudo systemctl restart hermes-dashboard.service")
+        else:
+            print("  Restart the dashboard when you're ready:")
+            print("    hermes dashboard --port <port>")
 
 
 # Back-compat alias: some tests and any external callers may import the old
