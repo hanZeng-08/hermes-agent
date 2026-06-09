@@ -387,15 +387,36 @@ function useThreadScrollAnchor({
     }
   }, [scrollerRef, stickyBottomRef])
 
-  // Intentionally NO streaming auto-follow. Earlier builds ran a
-  // ResizeObserver here that re-pinned the viewport to the bottom on every
-  // content growth while a turn was running, so the chat tracked tokens as
-  // they streamed. That behavior is removed by request: once a turn is in
-  // flight the viewport stays exactly where the user left it. The viewport
-  // is still moved to the bottom ONCE per user submit / new turn / session
-  // change (see the layout effect and the session-change effect below) so a
-  // freshly submitted message lands in view — but it does not chase the
-  // stream afterward.
+  // Streaming auto-follow: while a turn is running and the user is parked at
+  // the bottom, pin the viewport to the bottom as content grows. This is
+  // gated on `isRunning` so the viewport does NOT snap after completion
+  // (e.g., Shiki re-highlight) or during idle layout shifts. The RO watches
+  // the scroll content (not the viewport) so it fires when messages actually
+  // grow, not on every viewport resize. `pinToBottom` bails if already at
+  // bottom, and `scrollToFn` suppresses the virtualizer's measurement-based
+  // adjustments when sticky, so the two systems don't fight.
+  useEffect(() => {
+    if (!enabled || !isRunning) {
+      return undefined
+    }
+
+    const el = scrollerRef.current
+    const content = el?.firstElementChild
+
+    if (!el || !content) {
+      return undefined
+    }
+
+    const ro = new ResizeObserver(() => {
+      if (stickyBottomRef.current) {
+        pinToBottom()
+      }
+    })
+
+    ro.observe(content)
+
+    return () => ro.disconnect()
+  }, [enabled, isRunning, pinToBottom, scrollerRef, stickyBottomRef])
 
   // Jump to bottom on session change OR when an empty thread first gets
   // content. Both share the same intent and the same effect.
