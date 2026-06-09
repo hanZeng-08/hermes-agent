@@ -489,7 +489,7 @@ describe('assistant-ui streaming renderer', () => {
     expect(viewport.scrollTop).toBe(420)
   })
 
-  it('keeps sticky-bottom armed through viewport height changes during streaming', async () => {
+  it('follows streaming content growth while parked at the bottom', async () => {
     const { container } = render(<StreamingHarness />)
 
     const content = container.querySelector('[data-slot="aui_thread-content"]') as HTMLDivElement
@@ -508,6 +508,7 @@ describe('assistant-ui streaming renderer', () => {
 
     await wait(80)
 
+    // Park the user at the bottom of the current content.
     await act(async () => {
       viewport.scrollTop = 800
       fireEvent.scroll(viewport)
@@ -520,6 +521,8 @@ describe('assistant-ui streaming renderer', () => {
       fireEvent.scroll(viewport)
     })
 
+    // Content grows as tokens stream in. The viewport should follow the new
+    // bottom because the user is parked at the bottom and sticky-bottom is armed.
     scrollHeight = 1_200
 
     await act(async () => {
@@ -529,7 +532,46 @@ describe('assistant-ui streaming renderer', () => {
     })
     await wait(0)
 
-    expect(viewport.scrollTop).toBe(1_200)
+    expect(viewport.scrollTop).toBe(960)
+  })
+
+  it('does not follow streaming content growth when the user has scrolled up', async () => {
+    const { container } = render(<StreamingHarness />)
+
+    const content = container.querySelector('[data-slot="aui_thread-content"]') as HTMLDivElement
+    const viewport = content.parentElement as HTMLDivElement
+    let scrollHeight = 1_000
+
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 200 })
+    Object.defineProperty(viewport, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight
+    })
+
+    await wait(80)
+
+    // User scrolls up, disarming sticky-bottom.
+    await act(async () => {
+      viewport.scrollTop = 420
+      fireEvent.scroll(viewport)
+    })
+
+    await act(async () => {
+      fireEvent.wheel(viewport, { deltaY: -120 })
+    })
+
+    // Content grows while streaming, but the user is intentionally reading
+    // earlier messages — the viewport must stay put.
+    scrollHeight = 1_200
+
+    await act(async () => {
+      for (const observer of resizeObservers) {
+        observer.trigger(1_200)
+      }
+    })
+    await wait(0)
+
+    expect(viewport.scrollTop).toBe(420)
   })
 
   it('honors the first upward wheel scroll even when a programmatic bottom-pin scroll event is still pending', async () => {
